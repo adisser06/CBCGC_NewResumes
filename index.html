@@ -518,7 +518,51 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* BULK UPLOAD */
+  /* API KEY MODAL */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+  }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    max-width: 460px;
+    width: 90%;
+  }
+  .modal h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    color: var(--accent);
+  }
+  .modal p {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+  .modal input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    outline: none;
+    margin-bottom: 16px;
+  }
+  .modal input:focus { border-color: var(--accent); }
+  .modal-btns { display: flex; gap: 10px; }
+  .modal a { color: var(--accent2); font-size: 11px; text-decoration: none; }
+  .modal a:hover { text-decoration: underline; }
 
   .bulk-queue { margin-bottom: 20px; }
   .bulk-item {
@@ -554,6 +598,21 @@
 </head>
 <body>
 
+<!-- API Key Modal -->
+<div id="apiKeyModal" class="modal-overlay" style="display:none;">
+  <div class="modal">
+    <h3>🔑 API Key Required</h3>
+    <p>RESUMATCH uses the Anthropic API to parse resumes with AI. Enter your API key below — it's saved only in your browser and never shared with anyone.<br><br>
+    <a href="https://console.anthropic.com/api-keys" target="_blank">Get a free API key at console.anthropic.com →</a></p>
+    <input type="password" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off">
+    <div style="font-size:10px;color:var(--muted);margin-bottom:16px;">Your key is stored only in your browser's localStorage. Never visible in the URL or share links.</div>
+    <div class="modal-btns">
+      <button class="parse-btn" onclick="saveApiKey()">Save & Continue</button>
+      <button class="parse-btn" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);" onclick="closeApiKeyModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <header>
   <h1>RESUMATCH</h1>
   <span>AI Candidate Comparator</span>
@@ -564,6 +623,7 @@
   <button class="tab" onclick="switchTab('bulk')">⇑ Bulk Upload</button>
   <button class="tab" onclick="switchTab('compare')" id="compareTab">Compare All</button>
   <button class="tab" onclick="switchTab('share')" id="shareTab">↑ Share</button>
+  <button class="tab" onclick="switchTab('settings')" id="settingsTab">⚙ Settings</button>
 </div>
 
 <div class="app">
@@ -727,6 +787,29 @@
 
     <!-- Hidden print container -->
     <div id="printContainer" style="display:none;"></div>
+
+    <div id="tabSettings" style="display:none;">
+      <div class="input-view" style="max-width:520px;">
+        <h2>Settings</h2>
+        <p>Manage your API key and other preferences.</p>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;">
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:6px;">🔑 Anthropic API Key</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
+            Required for AI parsing. Stored only in your browser — never shared. <a href="https://console.anthropic.com/api-keys" target="_blank" style="color:var(--accent2);">Get a key →</a>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <input type="password" id="settingsApiKeyInput" placeholder="sk-ant-..." style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:9px 12px;border-radius:6px;outline:none;">
+            <button class="parse-btn" onclick="saveApiKeyFromSettings()" style="font-size:12px;padding:9px 18px;white-space:nowrap;">Save</button>
+          </div>
+          <div id="apiKeyStatus" style="font-size:11px;margin-top:10px;color:var(--muted);"></div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:20px;">
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:6px;">🗑 Clear All Data</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.6;">Remove all candidates and your API key from this browser.</div>
+          <button class="parse-btn" onclick="clearAllData()" style="font-size:12px;padding:9px 18px;background:rgba(240,74,74,0.15);color:var(--danger);border:1px solid rgba(240,74,74,0.3);">Clear Everything</button>
+        </div>
+      </div>
+    </div>
 </div>
 
 <script>
@@ -877,7 +960,97 @@ function scoreColor(s) {
   return '#f04a4a';
 }
 
+// ── API Key Management ────────────────────────────────────────────────────────
+
+const API_KEY_STORAGE = 'resumatch_api_key';
+let pendingApiKeyCallback = null;
+
+function getApiKey() {
+  return localStorage.getItem(API_KEY_STORAGE) || '';
+}
+
+function saveApiKey() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key.startsWith('sk-ant-')) {
+    alert('Invalid key — Anthropic API keys start with sk-ant-');
+    return;
+  }
+  localStorage.setItem(API_KEY_STORAGE, key);
+  document.getElementById('apiKeyModal').style.display = 'none';
+  updateApiKeyStatus();
+  if (pendingApiKeyCallback) {
+    const cb = pendingApiKeyCallback;
+    pendingApiKeyCallback = null;
+    cb();
+  }
+}
+
+function closeApiKeyModal() {
+  document.getElementById('apiKeyModal').style.display = 'none';
+  pendingApiKeyCallback = null;
+}
+
+function requireApiKey(callback) {
+  const key = getApiKey();
+  if (key) { callback(); return; }
+  pendingApiKeyCallback = callback;
+  document.getElementById('apiKeyInput').value = '';
+  document.getElementById('apiKeyModal').style.display = 'flex';
+}
+
+function saveApiKeyFromSettings() {
+  const key = document.getElementById('settingsApiKeyInput').value.trim();
+  if (!key.startsWith('sk-ant-')) {
+    document.getElementById('apiKeyStatus').textContent = '✕ Invalid key — must start with sk-ant-';
+    document.getElementById('apiKeyStatus').style.color = 'var(--danger)';
+    return;
+  }
+  localStorage.setItem(API_KEY_STORAGE, key);
+  document.getElementById('apiKeyStatus').textContent = '✓ API key saved';
+  document.getElementById('apiKeyStatus').style.color = 'var(--accent)';
+  document.getElementById('settingsApiKeyInput').value = '';
+}
+
+function updateApiKeyStatus() {
+  const key = getApiKey();
+  const el = document.getElementById('apiKeyStatus');
+  if (!el) return;
+  if (key) {
+    el.textContent = '✓ API key saved (' + key.slice(0,12) + '...)';
+    el.style.color = 'var(--accent)';
+  } else {
+    el.textContent = 'No API key set';
+    el.style.color = 'var(--muted)';
+  }
+}
+
+function clearAllData() {
+  if (!confirm('This will delete all candidates and your API key from this browser. Are you sure?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(API_KEY_STORAGE);
+  candidates = [];
+  selectedId = null;
+  renderSidebar();
+  switchTab('input');
+  alert('All data cleared.');
+}
+
+function getApiHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': getApiKey(),
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true'
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function parseWithAI() {
+  requireApiKey(_parseWithAI);
+}
+
+async function _parseWithAI() {
   const raw = document.getElementById('rawText').value.trim();
   if (!raw) { alert('Please paste resume text first.'); return; }
 
@@ -889,7 +1062,7 @@ async function parseWithAI() {
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders(),
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 1000,
@@ -915,6 +1088,7 @@ Return ONLY the JSON, no markdown, no explanation.`
     });
 
     const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
     let text = data.content.map(i => i.text || '').join('');
     text = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(text);
@@ -928,7 +1102,7 @@ Return ONLY the JSON, no markdown, no explanation.`
     if (parsed.achievements) document.getElementById('fAchievements').value = parsed.achievements;
 
   } catch(e) {
-    alert('Parse error. Please check fields manually.');
+    alert('Parse error: ' + e.message + '\n\nCheck your API key in Settings.');
     console.error(e);
   }
 
@@ -1182,17 +1356,19 @@ function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
 
-  document.getElementById('tabInput').style.display   = tab === 'input'   ? 'block' : 'none';
-  document.getElementById('tabBulk').style.display    = tab === 'bulk'    ? 'block' : 'none';
-  document.getElementById('tabDetail').style.display  = tab === 'detail'  ? 'block' : 'none';
-  document.getElementById('tabCompare').style.display = tab === 'compare' ? 'block' : 'none';
-  document.getElementById('tabShare').style.display   = tab === 'share'   ? 'block' : 'none';
+  document.getElementById('tabInput').style.display    = tab === 'input'    ? 'block' : 'none';
+  document.getElementById('tabBulk').style.display     = tab === 'bulk'     ? 'block' : 'none';
+  document.getElementById('tabDetail').style.display   = tab === 'detail'   ? 'block' : 'none';
+  document.getElementById('tabCompare').style.display  = tab === 'compare'  ? 'block' : 'none';
+  document.getElementById('tabShare').style.display    = tab === 'share'    ? 'block' : 'none';
+  document.getElementById('tabSettings').style.display = tab === 'settings' ? 'block' : 'none';
 
   const tabs = document.querySelectorAll('.tab');
-  if (tab === 'input')   tabs[0].classList.add('active');
-  if (tab === 'bulk')    tabs[1].classList.add('active');
-  if (tab === 'compare') { tabs[2].classList.add('active'); renderCompare(); }
-  if (tab === 'share')   tabs[3].classList.add('active');
+  if (tab === 'input')    tabs[0].classList.add('active');
+  if (tab === 'bulk')     tabs[1].classList.add('active');
+  if (tab === 'compare')  { tabs[2].classList.add('active'); renderCompare(); }
+  if (tab === 'share')    tabs[3].classList.add('active');
+  if (tab === 'settings') { tabs[4].classList.add('active'); updateApiKeyStatus(); }
 }
 
 // ── Bulk Upload ───────────────────────────────────────────────────────────────
@@ -1200,8 +1376,9 @@ function switchTab(tab) {
 // Drag-and-drop wiring (runs after DOM ready)
 function handleBulkFiles(event) {
   const files = [...event.target.files];
-  if (files.length) processBulkFiles(files);
   event.target.value = '';
+  if (!files.length) return;
+  requireApiKey(() => processBulkFiles(files));
 }
 
 // Read a file as base64
@@ -1253,11 +1430,12 @@ async function parseSingleFile(file) {
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getApiHeaders(),
     body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages })
   });
 
   const data = await response.json();
+  if (data.error) throw new Error(data.error.message);
   let text = (data.content || []).map(i => i.text || '').join('');
   text = text.replace(/```json|```/g, '').trim();
   return JSON.parse(text);
